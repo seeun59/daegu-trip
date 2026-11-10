@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>대구 하루 코스 지도</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@700&family=IBM+Plex+Sans+KR:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#1d2b53; --route:#2f56d6; --gift:#c98a00; --vint:#a1336b; --bg:#f3f5fa;
+  --panel:#ffffff; --text:#1d2433; --muted:#5d6577; --line:#dfe3ec;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ink:#c9d4ff; --route:#7e9bff; --gift:#f2b63a; --vint:#e07aa9; --bg:#12151d;
+    --panel:#1b1f2a; --text:#e8ebf2; --muted:#9aa2b4; --line:#2c3242; color-scheme: dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none}
+body{font-family:"IBM Plex Sans KR",system-ui,sans-serif;background:var(--bg);color:var(--text);
+  -webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+#map{position:fixed;inset:0;height:100%;background:var(--bg)}
+h1{font-family:"Gaegu",cursive;font-size:30px;line-height:1.1;margin:0;color:var(--ink)}
+
+/* ---- 첫 화면 ---- */
+#intro{position:fixed;inset:0;z-index:3000;background:#16234f;color:#fff;overflow:hidden;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;
+  padding:env(safe-area-inset-top,0px) 24px env(safe-area-inset-bottom,0px);
+  transition:transform .55s cubic-bezier(.7,0,.2,1),opacity .55s}
+#intro[hidden]{display:none}
+#intro.leave{transform:translateY(-100%);opacity:.6}
+#intro .sketch{position:absolute;inset:0;width:100%;height:100%;opacity:.22;pointer-events:none}
+#intro .title{font-family:"Gaegu",cursive;font-weight:700;font-size:clamp(64px,22vw,120px);line-height:1;margin:0;
+  color:#fff;position:relative}
+.course-toggle{position:relative;display:flex;align-items:center;gap:14px;font:inherit;font-size:17px;font-weight:600;
+  color:#fff;background:rgba(255,255,255,.1);border:1.5px solid rgba(255,255,255,.55);border-radius:999px;
+  padding:10px 20px 10px 10px;cursor:pointer;min-height:52px}
+.course-toggle .track{width:52px;height:30px;border-radius:999px;background:rgba(255,255,255,.25);position:relative;
+  transition:background .25s;flex:none}
+.course-toggle .knob{position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;
+  transition:transform .25s}
+.course-toggle[aria-checked="true"] .track{background:#5b7cff}
+.course-toggle[aria-checked="true"] .knob{transform:translateX(22px)}
+.course-toggle:focus-visible{outline:2px solid #fff;outline-offset:3px}
+
+/* ---- 아래 슬라이드 시트 ---- */
+#sheet{position:fixed;left:0;right:0;bottom:0;z-index:1000;margin:0 auto;max-width:560px;
+  height:calc(100dvh - 56px - env(safe-area-inset-top,0px));background:var(--panel);
+  border-radius:20px 20px 0 0;box-shadow:0 -6px 24px rgba(0,0,0,.18);display:flex;flex-direction:column;
+  transform:translateY(calc(100% - 110px));transition:transform .3s cubic-bezier(.2,.8,.2,1)}
+#sheet.dragging{transition:none}
+.sheet-head{padding:8px 18px 10px;touch-action:none;cursor:grab;flex:none;user-select:none;-webkit-user-select:none}
+.grab{display:block;width:44px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 10px;border:0;padding:0;cursor:pointer}
+.grab::before{content:"";display:block;margin:-12px -20px;height:29px}
+.head-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.back{font:inherit;font-size:13px;border:0;background:none;color:var(--muted);cursor:pointer;padding:6px 0;min-height:36px}
+.sheet-body{overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  padding:0 18px calc(24px + env(safe-area-inset-bottom,0px));flex:1}
+.sub{color:var(--muted);font-size:13px;margin:0 0 16px;line-height:1.5}
+.tools{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.tools button{font:inherit;font-size:13px;padding:8px 13px;min-height:36px;border-radius:999px;border:1px solid var(--line);
+  background:transparent;color:var(--text);cursor:pointer}
+.tools button:focus-visible,.stop:focus-visible,a:focus-visible{outline:2px solid var(--route);outline-offset:2px}
+ol.tl{list-style:none;margin:0;padding:0}
+.stop{display:grid;grid-template-columns:30px 1fr;gap:10px;padding:10px 6px;border-radius:10px;cursor:pointer}
+.stop:hover{background:color-mix(in srgb,var(--route) 8%,transparent)}
+.num{width:28px;height:28px;border-radius:50%;background:var(--ink);color:var(--panel);display:grid;place-items:center;
+  font-weight:600;font-size:13px}
+.num.gift{background:var(--gift)} .num.vint{background:var(--vint)}
+.stop b{display:block;font-size:15px}
+.stop small{color:var(--muted);font-size:12.5px;line-height:1.45;display:block}
+.leg{margin:0 0 0 20px;padding:4px 0 4px 18px;border-left:2px dashed var(--line);font-size:13px;color:var(--muted)}
+.leg a{color:var(--route);text-decoration:none;font-weight:600;margin-left:6px}
+.note{margin-top:16px;font-size:12.5px;line-height:1.55;color:var(--muted);border-top:1px solid var(--line);padding-top:12px}
+
+/* pins */
+.pin{width:34px;height:34px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--ink);
+  border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);display:grid;place-items:center}
+.pin span{transform:rotate(45deg);color:#fff;font-weight:700;font-size:13px}
+.pin.gift{background:var(--gift)} .pin.vint{background:var(--vint)}
+.dot{width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.dot.gift{background:var(--gift)} .dot.vint{background:var(--vint)}
+.arrow svg{display:block}
+.leglabel{background:var(--panel);color:var(--text);border:1.5px solid var(--route);border-radius:8px;
+  padding:3px 7px;font-size:12px;font-weight:600;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.2);
+  transform:translate(-50%,-50%);display:inline-block}
+.leglabel.short{display:none}
+.zoomed .leglabel.short{display:inline-block}
+
+/* card popup */
+.leaflet-popup-content-wrapper{border-radius:14px;padding:0;overflow:hidden;background:var(--panel);color:var(--text)}
+.leaflet-popup-tip{background:var(--panel)}
+.leaflet-popup-content{margin:0;width:260px!important}
+.card .ph{height:130px;display:grid;place-items:center;font-size:46px;
+  background:linear-gradient(135deg,color-mix(in srgb,var(--route) 30%,var(--panel)),color-mix(in srgb,var(--vint) 25%,var(--panel)))}
+.card img{width:100%;height:150px;object-fit:cover;display:block}
+.card .body{padding:12px 14px 14px}
+.card h3{margin:0 0 2px;font-size:16px}
+.card .cat{font-size:12px;color:var(--muted);margin-bottom:8px}
+.card p{margin:4px 0;font-size:12.5px;line-height:1.5}
+.card .btns{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.card .btns a{font-size:12.5px;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600;
+  background:#03c75a;color:#fff}
+.card .btns a.alt{background:transparent;color:var(--route);border:1px solid var(--route)}
+
+/* card news */
+.news .news-head{padding:10px 14px;font-weight:600;font-size:15px;color:#fff;background:var(--gift)}
+.news .news-head.vint{background:var(--vint)}
+.news .news-head small{display:block;font-weight:400;font-size:12px;opacity:.9}
+.news .track{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:thin}
+.news .slide{flex:0 0 100%;scroll-snap-align:start}
+.news .pic{position:relative;cursor:pointer}
+.news .pic .ph{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+.news .pic .ph em{font-style:normal;font-size:12px;color:var(--muted)}
+.news .pic .ph,.news .pic img{height:170px;width:100%;object-fit:cover}
+.news .count{position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.6);color:#fff;font-size:11.5px;
+  padding:2px 8px;border-radius:999px}
+.news h3{font-size:17px}
+.news .hours{font-weight:600;color:var(--text)}
+.news .body p{color:var(--muted)}
+
+/* memories */
+.album-btn{border-color:var(--route)!important;color:var(--route)!important;font-weight:600}
+.warn{font-size:12.5px;color:#b3261e;margin:0 0 12px;line-height:1.5}
+.memory{border-top:1px dashed var(--line);margin-top:10px;padding-top:10px}
+.mem-actions{display:flex;gap:6px;flex-wrap:wrap}
+.mem-actions button{font:inherit;font-size:12.5px;padding:6px 9px;border-radius:8px;border:1px solid var(--line);
+  background:var(--panel);color:var(--text);cursor:pointer}
+.mem-actions button.on{background:var(--route);border-color:var(--route);color:#fff;font-weight:600}
+.thumbs{display:flex;gap:6px;overflow-x:auto;margin-top:8px}
+.thumb{flex:0 0 56px;height:56px;padding:0;border:0;border-radius:8px;overflow:hidden;cursor:pointer;background:none}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.memory textarea{width:100%;margin-top:8px;font:inherit;font-size:13px;border:1px solid var(--line);border-radius:8px;
+  padding:6px 8px;background:var(--bg);color:var(--text);resize:vertical}
+.saved-tag{font-size:11px;color:var(--route);height:14px;margin-top:2px}
+.badge{display:inline-block;margin-left:6px;font-size:11.5px;color:var(--route);font-weight:600}
+.overlay{position:fixed;inset:0;z-index:2000;background:rgba(10,14,25,.55);display:flex;align-items:center;justify-content:center;
+  padding:calc(12px + env(safe-area-inset-top,0px)) 12px calc(12px + env(safe-area-inset-bottom,0px))}
+.overlay[hidden]{display:none}
+.album-box{background:var(--panel);color:var(--text);width:min(640px,100%);max-height:100%;border-radius:16px;display:flex;flex-direction:column;overflow:hidden}
+.album-box header{display:flex;justify-content:space-between;align-items:center;padding:16px 18px 0}
+.album-box h2{font-family:"Gaegu",cursive;font-size:30px;margin:0;color:var(--ink)}
+.album-box .sub{padding:0 18px;margin:4px 0 8px}
+.x{font-size:18px;border:0;background:none;color:var(--text);cursor:pointer;padding:6px}
+#albumList{overflow-y:auto;padding:0 18px 12px}
+.entry{padding:14px 0;border-bottom:1px solid var(--line)}
+.entry h3{margin:0;font-size:16px}
+.entry .when{font-size:12px;color:var(--muted);margin:2px 0 6px}
+.entry .memo{font-size:14px;line-height:1.55;margin:0 0 8px;white-space:pre-wrap}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px}
+.grid button{padding:0;border:0;border-radius:8px;overflow:hidden;aspect-ratio:1;cursor:pointer;background:none}
+.grid img{width:100%;height:100%;object-fit:cover;display:block}
+.empty{color:var(--muted);font-size:14px;padding:24px 0;text-align:center;line-height:1.6}
+.album-box footer{display:flex;gap:8px;flex-wrap:wrap;padding:12px 18px;border-top:1px solid var(--line)}
+.album-box footer button,.viewer-btns button{font:inherit;font-size:13px;padding:8px 12px;border-radius:999px;border:1px solid var(--line);
+  background:transparent;color:var(--text);cursor:pointer}
+.album-box footer #exportAlbum{background:var(--route);border-color:var(--route);color:#fff;font-weight:600}
+.overlay.dark{background:rgba(0,0,0,.88);flex-direction:column;gap:12px}
+.overlay figure{margin:0;max-width:100%;max-height:80%;display:flex;flex-direction:column;align-items:center}
+.overlay figure img{max-width:100%;max-height:70vh;border-radius:10px;object-fit:contain}
+.overlay figcaption{color:#fff;font-size:13px;margin-top:8px;text-align:center}
+.viewer-btns{display:flex;gap:8px}
+.viewer-btns button{color:#fff;border-color:rgba(255,255,255,.4)}
+button:focus-visible,textarea:focus-visible{outline:2px solid var(--route);outline-offset:2px}
+
+.leaflet-control-container .leaflet-top{top:env(safe-area-inset-top,0px)}
+.leaflet-popup-content-wrapper{max-height:62dvh;overflow-y:auto}
+@media (prefers-reduced-motion:reduce){#intro,#sheet,.course-toggle .knob{transition:none}}
+</style>
+</head>
+<body>
+<section id="intro" aria-label="대구 여행 첫 화면">
+  <svg class="sketch" viewBox="0 0 400 700" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <path d="M70 120 H300 Q340 120 330 170 L300 300 Q290 340 250 360 L210 470 Q190 520 140 520 L110 520 Q70 515 80 470 L95 320 Q100 250 70 210 Z"
+      fill="none" stroke="#fff" stroke-width="3" stroke-dasharray="2 10" stroke-linecap="round"/>
+    <g fill="#fff"><circle cx="70" cy="120" r="7"/><circle cx="300" cy="120" r="7"/><circle cx="330" cy="170" r="7"/>
+      <circle cx="300" cy="300" r="7"/><circle cx="250" cy="360" r="7"/><circle cx="210" cy="470" r="7"/>
+      <circle cx="140" cy="520" r="7"/><circle cx="95" cy="320" r="7"/></g>
+  </svg>
+  <h1 class="title">대구 여행</h1>
+  <button id="courseToggle" class="course-toggle" role="switch" aria-checked="false">
+    <span class="track"><span class="knob"></span></span>대구 하루 코스
+  </button>
+</section>
+
+<div id="map"></div>
+
+<section id="sheet" aria-label="대구 하루 코스 타임라인">
+  <div class="sheet-head" id="sheetHead">
+    <button class="grab" id="grab" aria-label="타임라인 펼치기"></button>
+    <div class="head-row">
+      <h1>대구 하루 코스</h1>
+      <button class="back" id="backIntro">처음으로</button>
+    </div>
+    <p class="sub" style="margin:4px 0 0">위로 밀어 올리면 전체 일정이 보여요.</p>
+  </div>
+  <div class="sheet-body" id="sheetBody">
+    <div class="tools">
+    <button id="fitAll">전체 경로 보기</button>
+    <button id="fitDown">동성로 확대</button>
+    <button id="openAlbum" class="album-btn">📔 추억 앨범</button>
+  </div>
+  <p id="storeWarn" class="warn" hidden>이 방식으로 연 파일에서는 기록이 저장되지 않을 수 있어요. 여행이 끝나면 추억 앨범에서 꼭 파일로 저장해 두세요.</p>
+  <ol class="tl" id="timeline"></ol>
+    <p class="note">월·화는 물비늘, 수요일은 하이마트 음악감상실, 금요일은 nightwaks가 쉬어서 목·토·일 방문이 가장 좋아요. 모노하는 평일 18시에 닫으니 소품샵 투어를 먼저 도는 순서로 짰어요. 이동 시간은 대략치예요. 버스 번호와 도착 시간은 각 구간의 길찾기 링크에서 실시간으로 확인하세요. 핀 카드의 📷 촬영, 🖼️ 갤러리 버튼으로 사진과 한 줄 메모를 남기면 이 브라우저에 저장되고, 추억 앨범에서 모아 볼 수 있어요.</p>
+</div>
+</section>
+
+<div id="album" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="albumTitle">
+  <div class="album-box">
+    <header>
+      <h2 id="albumTitle">우리의 대구 기록</h2>
+      <button class="x" data-close="album" aria-label="앨범 닫기">✕</button>
+    </header>
+    <p id="albumStat" class="sub"></p>
+    <div id="albumList"></div>
+    <footer>
+      <button id="exportAlbum">앨범 파일로 저장</button>
+      <button id="exportBackup">백업 저장</button>
+      <button id="importBackup">백업 불러오기</button>
+    </footer>
+  </div>
+</div>
+<div id="viewer" class="overlay dark" hidden role="dialog" aria-modal="true" aria-label="사진 크게 보기">
+  <figure>
+    <img id="viewerImg" alt="">
+    <figcaption id="viewerCap"></figcaption>
+  </figure>
+  <div class="viewer-btns">
+    <button id="viewerDel">사진 삭제</button>
+    <button data-close="viewer">닫기</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+/* img: 네이버 지도 사진 주소를 넣으면 카드에 사진이 표시됩니다 (비워두면 아이콘 표시) */
+const STOPS = [
+  {id:0,name:"동대구역",cat:"출발 · 도착",emoji:"🚄",lat:35.879667,lng:128.628476,img:"",
+   info:["KTX·SRT·지하철 1호선 환승역","신세계백화점 대구점과 연결"],time:"11:00 도착"},
+  {id:1,name:"스시 심신",cat:"점심 · 숙성 초밥",emoji:"🍣",lat:35.8766379,lng:128.6306278,img:"",
+   info:["동구 동부로32길 3 (신세계 맞은편 먹자골목)","스페셜 세트 26,000원 후기 있음, 안키모 추가 인기","브레이크타임·웨이팅 있어 캐치테이블 예약 추천"],time:"11:20 – 12:20"},
+  {id:2,name:"nightwaks",cat:"빈티지샵 · 커스텀 진",emoji:"👖",lat:35.8694119,lng:128.6113231,img:"",
+   info:["중구 동덕로36길 127, 2층","11:00 – 20:00 · 금요일 휴무"],time:"12:45 – 13:25"},
+  {id:3,name:"잔상화",cat:"카페 · 디저트",emoji:"☕",lat:35.8719312,lng:128.5985701,img:"",
+   info:["중구 경상감영길 205","우드톤 인테리어, 초콜릿 생화 케이크·말차 메뉴 후기"],time:"13:40 – 14:40"},
+  {id:4,name:"교동·경상감영길 소품샵 구경",cat:"소품샵 6곳",emoji:"🎁",lat:35.8724,lng:128.5960,img:"",cls:"gift",
+   info:["모노하 → GEEHEY blank → 홀리데이비지터샵 → 물비늘 → 신기루잡화점 → 이스츠"],time:"14:45 – 16:00"},
+  {id:5,name:"하이마트 음악감상실",cat:"고전 음악감상실 · 1957년~",emoji:"🎼",lat:35.8689724,lng:128.5978878,img:"",
+   info:["중구 동성로6길 45","입장료 8,000원 후기 (음료·간식 포함)","월화목금 13:00–21:00 · 토일 12:00–21:00 · 수요일 휴무"],time:"16:05 – 17:05"},
+  {id:6,name:"동성로 빈티지샵 투어",cat:"빈티지샵 6곳",emoji:"🧥",lat:35.8665,lng:128.5962,img:"",cls:"vint",
+   info:["에이라이브 → 쿠로마메 → 미닛뉴 → 아투트 → 페파 → 스윙잉서울","동성로1·2길 골목에 모여 있어 한 바퀴로 끝나요"],time:"17:10 – 18:35"},
+  {id:7,name:"걸리버막창 동성로점",cat:"저녁 · 대구 막창",emoji:"🔥",lat:35.8666063,lng:128.5986353,img:"",
+   info:["중구 동성로4길 39, 2층","최소 3인분 주문, 된장찌개·공깃밥 추천 후기","반월당역 10번 출구에서 약 400m"],time:"18:40 – 20:00"},
+  {id:8,name:"반월당역",cat:"지하철 1·2호선",emoji:"🚇",lat:35.8658,lng:128.5933,img:"",
+   info:["1호선 안심 방면 탑승 → 동대구역 하차 (5정거장)"],time:"20:10 탑승"}
+];
+
+/* 이동 구간: mode=walking|transit, short=동성로 확대 시에만 라벨 표시 */
+const LEGS = [
+  {from:0,to:1,icon:"🚶",text:"도보 9분",mode:"walking"},
+  {from:1,to:2,icon:"🚌",text:"버스 약 20분",mode:"transit"},
+  {from:2,to:3,icon:"🚌",text:"버스 약 10분",mode:"transit"},
+  {from:3,to:4,icon:"🚶",text:"도보 2분",mode:"walking",short:true},
+  {from:4,to:5,icon:"🚶",text:"도보 5분",mode:"walking",short:true},
+  {from:5,to:6,icon:"🚶",text:"도보 5분",mode:"walking",short:true},
+  {from:6,to:7,icon:"🚶",text:"도보 2분",mode:"walking",short:true},
+  {from:7,to:8,icon:"🚶",text:"도보 6분",mode:"walking",short:true},
+  {from:8,to:0,icon:"🚇",text:"지하철 1호선 약 11분",mode:"transit"}
+];
+
+/* 소품샵·빈티지샵 카드 데이터: img에 가게 대표 사진 주소를 넣으면 카드에 표시됩니다 */
+const SHOPS = [
+  {g:4,cls:"gift",emoji:"🍃",name:"모노하",lat:35.8722419,lng:128.5976645,hours:"평일 11:00 – 18:00 · 주말 12:00 – 19:00",d:"교동2길 45-1 · 대구 기념품·엽서·빈티지 만화",img:""},
+  {g:4,cls:"gift",emoji:"✏️",name:"GEEHEY blank",lat:35.8722244,lng:128.5970495,hours:"매일 13:00 – 20:00",d:"경상감영길 175, 3층 · 디자인 문구·다이어리 꾸미기",img:""},
+  {g:4,cls:"gift",emoji:"🏖️",name:"홀리데이비지터샵",lat:35.8719447,lng:128.5973041,hours:"매일 12:00 – 20:00",d:"경상감영길 184 · 자체 의류·포스터 액자·LP·드립백",img:""},
+  {g:4,cls:"gift",emoji:"🐟",name:"물비늘",lat:35.8738712,lng:128.5944064,hours:"수–일 12:00 – 19:00 · 월화 휴무",d:"중앙대로 455-2, 2층 · 이끼·물고기 콘셉트 아트 소품, 빈티지 식기",img:""},
+  {g:4,cls:"gift",emoji:"🧸",name:"신기루잡화점",lat:35.8728864,lng:128.592539,hours:"매일 11:00 – 21:00",d:"서성로14길 92 · 빈티지 소품·문구가 가득한 잡화점",img:""},
+  {g:4,cls:"gift",emoji:"🕯️",name:"이스츠",lat:35.8679974,lng:128.5952587,hours:"매일 13:00 – 20:00",d:"동성로5길 11, 2층 · 아기자기한 소품샵",img:""},
+  {g:6,cls:"vint",emoji:"👖",name:"에이라이브",lat:35.8672999,lng:128.5950286,hours:"평일 13:00 – 21:30 · 주말 12:30 – 21:30",d:"동성로1길 29-15 · 리바이스·디젤 데님이 많은 곳",img:""},
+  {g:6,cls:"vint",emoji:"🫘",name:"쿠로마메 빈티지샵",lat:35.8659108,lng:128.5953048,hours:"매일 13:00 – 21:00",d:"동성로1길 46-18 · 주택 개조 매장, 1만원 세일존",img:""},
+  {g:6,cls:"vint",emoji:"🕰️",name:"미닛뉴",lat:35.8662391,lng:128.5965507,hours:"운영시간 방문 전 확인",d:"동성로2길 21-4",img:""},
+  {g:6,cls:"vint",emoji:"🎞️",name:"아투트",lat:35.8665,lng:128.5968,hours:"운영시간 방문 전 확인",d:"동성로2길 21-9 (핀 위치는 근사치)",img:""},
+  {g:6,cls:"vint",emoji:"🛍️",name:"페파 스토어",lat:35.866438,lng:128.5971512,hours:"운영시간 방문 전 확인",d:"동성로2길 18-16",img:""},
+  {g:6,cls:"vint",emoji:"🎷",name:"스윙잉서울 대구점",lat:35.866668,lng:128.5972986,hours:"매일 11:00 – 21:00",d:"동성로2길 18-19",img:""}
+];
+
+const naver = n => "https://map.naver.com/p/search/" + encodeURIComponent("대구 " + n);
+const gdir = (a,b,mode) => `https://www.google.com/maps/dir/?api=1&origin=${a.lat},${a.lng}&destination=${b.lat},${b.lng}&travelmode=${mode}`;
+
+const map = L.map("map",{zoomControl:true});
+const googleMap = L.tileLayer("https://mt{s}.google.com/vt/lyrs=m&hl=ko&gl=KR&x={x}&y={y}&z={z}",{
+  maxZoom:20, subdomains:"0123", attribution:"지도 &copy; Google"
+});
+const googleSat = L.tileLayer("https://mt{s}.google.com/vt/lyrs=y&hl=ko&gl=KR&x={x}&y={y}&z={z}",{
+  maxZoom:20, subdomains:"0123", attribution:"지도 &copy; Google"
+});
+const cartoMap = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{
+  maxZoom:19, subdomains:"abcd",
+  attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'
+});
+googleMap.addTo(map);
+L.control.layers({"구글 지도":googleMap,"구글 위성":googleSat,"심플 지도":cartoMap},null,{position:"topright"}).addTo(map);
+
+const css = getComputedStyle(document.documentElement);
+const ROUTE = css.getPropertyValue("--route").trim();
+
+/* ===== 추억 기록 저장소: IndexedDB → localStorage → 메모리 순으로 시도 ===== */
+const REC = {};
+let storeMode = "memory", db = null;
+const blank = n => ({name:n, visited:null, memo:"", photos:[]});
+const rec = n => REC[n] || blank(n);
+
+function openStore(){
+  return new Promise(res=>{
+    try{
+      const r = indexedDB.open("daegu-trip-memories",1);
+      r.onupgradeneeded = ()=>r.result.createObjectStore("records",{keyPath:"name"});
+      r.onsuccess = ()=>{ db=r.result; storeMode="idb"; res(); };
+      r.onerror = ()=>res();
+    }catch(e){ res(); }
+  }).then(()=>{
+    if(storeMode==="idb") return new Promise(res=>{
+      const q = db.transaction("records").objectStore("records").getAll();
+      q.onsuccess = ()=>{ q.result.forEach(r=>REC[r.name]=r); res(); };
+      q.onerror = ()=>res();
+    });
+    try{
+      localStorage.setItem("__t","1"); localStorage.removeItem("__t"); storeMode="ls";
+      const raw = localStorage.getItem("daegu-trip-memories");
+      if(raw) Object.assign(REC, JSON.parse(raw));
+    }catch(e){ storeMode="memory"; }
+  }).then(()=>{
+    // 이전 버전에서 넣은 대표 사진 가져오기
+    SHOPS.forEach(p=>{
+      try{
+        const old = localStorage.getItem("photo:"+p.name);
+        if(old && !REC[p.name]){ REC[p.name] = {...blank(p.name), photos:[{id:"old"+Date.now(), src:old, t:Date.now()}]}; persist(p.name); }
+      }catch(e){}
+    });
+  });
+}
+function persist(name){
+  const r = REC[name];
+  if(storeMode==="idb"){
+    try{ db.transaction("records","readwrite").objectStore("records").put(r); }catch(e){}
+  }else if(storeMode==="ls"){
+    try{ localStorage.setItem("daegu-trip-memories", JSON.stringify(REC)); }
+    catch(e){ alert("저장 공간이 가득 찼어요. 추억 앨범에서 파일로 저장한 뒤 오래된 사진을 지워주세요."); }
+  }
+}
+function update(name, fn){ const r = REC[name] || blank(name); fn(r); REC[name]=r; persist(name); }
+
+const esc = t => String(t||"").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt = ts => { const d=new Date(ts); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; };
+const K = n => encodeURIComponent(n);
+
+function memoryBlock(name){
+  const r = rec(name), k = K(name);
+  const thumbs = r.photos.map(ph=>`<button class="thumb" data-act="view" data-k="${k}" data-id="${ph.id}" aria-label="${esc(name)} 사진 크게 보기"><img src="${ph.src}" alt=""></button>`).join("");
+  return `<div class="memory">
+    <div class="mem-actions">
+      <button data-act="camera" data-k="${k}">📷 촬영</button>
+      <button data-act="gallery" data-k="${k}">🖼️ 갤러리</button>
+      <button data-act="visit" data-k="${k}" class="${r.visited?"on":""}" aria-pressed="${!!r.visited}">${r.visited?"✓ "+fmt(r.visited)+" 방문":"다녀왔어요"}</button>
+    </div>
+    ${thumbs?`<div class="thumbs">${thumbs}</div>`:""}
+    <textarea data-act="memo" data-k="${k}" rows="2" placeholder="여기서 어땠는지 한 줄 남기기">${esc(r.memo)}</textarea>
+    <div class="saved-tag" data-saved="${k}"></div>
+  </div>`;
+}
+
+function shopSlide(p, i, total){
+  const r = rec(p.name);
+  const src = (r.photos[0] && r.photos[0].src) || p.img;
+  const pic = src ? `<img src="${src}" alt="${esc(p.name)} 사진">`
+                  : `<div class="ph"><span aria-hidden="true">${p.emoji}</span><em>📷 사진으로 기록 남기기</em></div>`;
+  const count = total ? `<span class="count">${i+1} / ${total}</span>` : "";
+  return `<div class="slide"><div class="pic" data-act="gallery" data-k="${K(p.name)}" role="button" tabindex="0" title="사진 추가">${pic}${count}</div>
+    <div class="body"><h3>${p.name}</h3><p class="hours">🕐 ${p.hours}</p><p>${p.d}</p>${memoryBlock(p.name)}</div></div>`;
+}
+function tourCard(s){
+  const list = SHOPS.filter(p=>p.g===s.id);
+  return `<div class="card news"><div class="news-head ${s.cls}">${s.emoji} ${s.name}<small>${s.time} · 옆으로 넘겨보기</small></div>
+    <div class="track">${list.map((p,i)=>shopSlide(p,i,list.length)).join("")}</div></div>`;
+}
+function card(s, next){
+  if (s.cls) return tourCard(s);
+  const r = rec(s.name);
+  const src = (r.photos[0] && r.photos[0].src) || s.img;
+  const top = src ? `<img src="${src}" alt="${esc(s.name)} 사진">` : `<div class="ph" aria-hidden="true">${s.emoji}</div>`;
+  const dir = next ? `<a class="alt" href="${gdir(s,next.stop,next.leg.mode)}" target="_blank" rel="noopener">다음 장소 길찾기</a>` : "";
+  return `<div class="card">${top}<div class="body"><h3>${s.name}</h3><div class="cat">${s.cat} · ${s.time}</div>
+    ${s.info.map(t=>`<p>${t}</p>`).join("")}
+    <div class="btns"><a href="${naver(s.name)}" target="_blank" rel="noopener">네이버 지도</a>${dir}</div>
+    ${memoryBlock(s.name)}</div></div>`;
+}
+
+const markers = {}, nexts = {}, dots = {};
+STOPS.forEach(s=>{
+  const leg = LEGS.find(l=>l.from===s.id);
+  nexts[s.id] = leg ? {leg, stop:STOPS[leg.to]} : null;
+  const label = s.id===0 ? "S" : s.id;
+  const icon = L.divIcon({className:"",html:`<div class="pin ${s.cls||""}"><span>${label}</span></div>`,iconSize:[34,34],iconAnchor:[4,34],popupAnchor:[13,-34]});
+  markers[s.id] = L.marker([s.lat,s.lng],{icon,title:s.name,zIndexOffset:500}).addTo(map).bindPopup(()=>card(s,nexts[s.id]),{maxWidth:260});
+});
+SHOPS.forEach(p=>{
+  const icon = L.divIcon({className:"",html:`<div class="dot ${p.cls}"></div>`,iconSize:[14,14],iconAnchor:[7,7]});
+  dots[p.name] = L.marker([p.lat,p.lng],{icon,title:p.name}).addTo(map).bindPopup(()=>`<div class="card news">${shopSlide(p)}</div>`,{maxWidth:260});
+});
+// 소품샵·빈티지 동선 (점선)
+[4,6].forEach(g=>{
+  const pts = SHOPS.filter(p=>p.g===g).map(p=>[p.lat,p.lng]);
+  L.polyline(pts,{color:g===4?css.getPropertyValue("--gift").trim():css.getPropertyValue("--vint").trim(),weight:2.5,dashArray:"4 6",opacity:.9}).addTo(map);
+});
+
+function bearing(a,b){
+  const dx=(b.lng-a.lng)*Math.cos(a.lat*Math.PI/180), dy=b.lat-a.lat;
+  return Math.atan2(-dy,dx)*180/Math.PI;
+}
+LEGS.forEach(l=>{
+  const a=STOPS[l.from], b=STOPS[l.to];
+  L.polyline([[a.lat,a.lng],[b.lat,b.lng]],{color:ROUTE,weight:4,opacity:.85,dashArray:l.mode==="transit"?"10 8":null}).addTo(map);
+  const t=.72, p=[a.lat+(b.lat-a.lat)*t, a.lng+(b.lng-a.lng)*t];
+  const ang=bearing(a,b);
+  L.marker(p,{interactive:false,icon:L.divIcon({className:"arrow",iconSize:[22,22],iconAnchor:[11,11],
+    html:`<svg width="22" height="22" viewBox="0 0 22 22" style="transform:rotate(${ang}deg)"><path d="M4 3 L19 11 L4 19 L8 11 Z" fill="${ROUTE}" stroke="#fff" stroke-width="1.5"/></svg>`})}).addTo(map);
+  const m=[(a.lat+b.lat)/2,(a.lng+b.lng)/2];
+  L.marker(m,{interactive:false,icon:L.divIcon({className:"",iconSize:[0,0],
+    html:`<span class="leglabel ${l.short?"short":""}">${l.icon} ${l.text}</span>`})}).addTo(map);
+});
+
+const allBounds = L.latLngBounds(STOPS.map(s=>[s.lat,s.lng]));
+const downBounds = L.latLngBounds([[35.8735,128.5915],[35.8650,128.5995]]);
+const toggleZoomClass=()=>document.getElementById("map").classList.toggle("zoomed",map.getZoom()>=16);
+map.on("zoomend",toggleZoomClass); toggleZoomClass();
+const sheetPad=()=>({paddingTopLeft:[30,60],paddingBottomRight:[30,visibleFor("peek")+20]});
+document.getElementById("fitAll").onclick=()=>{setSheet("peek");map.fitBounds(allBounds,sheetPad())};
+document.getElementById("fitDown").onclick=()=>{setSheet("peek");map.fitBounds(downBounds,sheetPad())};
+
+// 타임라인
+const tl=document.getElementById("timeline");
+STOPS.forEach(s=>{
+  const li=document.createElement("li");
+  li.innerHTML=`<div class="stop" tabindex="0" role="button" aria-label="${s.name} 지도에서 보기">
+    <div class="num ${s.cls||""}">${s.id===0?"S":s.id}</div><div><b>${s.name}<span class="badge" data-badge="${s.id}"></span></b><small>${s.time} · ${s.cat}</small></div></div>`;
+  const go=()=>{setSheet("peek"); map.setView([s.lat,s.lng],17); setTimeout(()=>markers[s.id].openPopup(),320)};
+  li.firstElementChild.onclick=go; li.firstElementChild.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go()}};
+  tl.appendChild(li);
+  const l=LEGS.find(x=>x.from===s.id);
+  if(l){const d=document.createElement("li");d.className="leg";
+    d.innerHTML=`${l.icon} ${l.text}<a href="${gdir(s,STOPS[l.to],l.mode)}" target="_blank" rel="noopener">길찾기</a>`;
+    tl.appendChild(d);}
+});
+function namesOf(s){ return s.cls ? SHOPS.filter(p=>p.g===s.id).map(p=>p.name) : [s.name]; }
+function updateBadges(){
+  STOPS.forEach(s=>{
+    const rs = namesOf(s).map(rec);
+    const v = rs.filter(r=>r.visited).length, ph = rs.reduce((a,r)=>a+r.photos.length,0);
+    const el = document.querySelector(`[data-badge="${s.id}"]`);
+    el.textContent = (v? (s.cls?` ✓${v}`:" ✓") : "") + (ph? ` 📷${ph}` : "");
+  });
+}
+
+/* ===== 화면 다시 그리기 ===== */
+function refresh(name){
+  const shop = SHOPS.find(p=>p.name===name);
+  const stop = shop ? STOPS.find(s=>s.id===shop.g) : STOPS.find(s=>s.name===name);
+  const track = document.querySelector(".leaflet-popup .track");
+  const keep = track ? track.scrollLeft : 0;
+  const m = markers[stop.id];
+  if(m.isPopupOpen()) m.setPopupContent(()=>card(stop,nexts[stop.id]));
+  if(shop && dots[name].isPopupOpen()) dots[name].setPopupContent(()=>`<div class="card news">${shopSlide(shop)}</div>`);
+  const t2 = document.querySelector(".leaflet-popup .track"); if(t2) t2.scrollLeft = keep;
+  updateBadges();
+  if(!document.getElementById("album").hidden) renderAlbum();
+}
+
+/* ===== 카메라 / 갤러리 ===== */
+const camIn = Object.assign(document.createElement("input"),{type:"file",accept:"image/*",hidden:true});
+camIn.setAttribute("capture","environment");
+const galIn = Object.assign(document.createElement("input"),{type:"file",accept:"image/*",multiple:true,hidden:true});
+document.body.append(camIn, galIn);
+let target = null;
+
+function shrink(file){
+  return new Promise(res=>{
+    const img = new Image(), u = URL.createObjectURL(file);
+    img.onload = ()=>{
+      const sc = Math.min(1, 1280/Math.max(img.width,img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width*sc); c.height = Math.round(img.height*sc);
+      c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+      URL.revokeObjectURL(u); res(c.toDataURL("image/jpeg",0.8));
+    };
+    img.onerror = ()=>{ URL.revokeObjectURL(u); res(null); };
+    img.src = u;
+  });
+}
+async function addPhotos(files){
+  if(!target || !files.length) return;
+  const name = target;
+  for(const f of files){
+    const src = await shrink(f);
+    if(src) update(name, r=>{ r.photos.push({id:Date.now()+"-"+Math.random().toString(36).slice(2,7), src, t:Date.now()}); if(!r.visited) r.visited=Date.now(); });
+  }
+  refresh(name);
+}
+camIn.onchange = ()=>{ addPhotos([...camIn.files]); camIn.value=""; };
+galIn.onchange = ()=>{ addPhotos([...galIn.files]); galIn.value=""; };
+
+let viewing = null;
+function openViewer(name,id){
+  const ph = rec(name).photos.find(x=>x.id===id); if(!ph) return;
+  viewing = {name,id};
+  document.getElementById("viewerImg").src = ph.src;
+  document.getElementById("viewerImg").alt = name+" 사진";
+  document.getElementById("viewerCap").textContent = `${name} · ${fmt(ph.t)}`;
+  document.getElementById("viewer").hidden = false;
+}
+document.getElementById("viewerDel").onclick = ()=>{
+  if(!viewing || !confirm("이 사진을 지울까요? 지운 사진은 되돌릴 수 없어요.")) return;
+  update(viewing.name, r=>{ r.photos = r.photos.filter(x=>x.id!==viewing.id); });
+  document.getElementById("viewer").hidden = true; refresh(viewing.name); viewing=null;
+};
+
+document.addEventListener("click",e=>{
+  const c = e.target.closest("[data-close]");
+  if(c){ document.getElementById(c.dataset.close).hidden = true; return; }
+  const b = e.target.closest("[data-act]"); if(!b) return;
+  const name = decodeURIComponent(b.dataset.k || "");
+  const act = b.dataset.act;
+  if(act==="camera"){ target=name; camIn.click(); }
+  else if(act==="gallery"){ target=name; galIn.click(); }
+  else if(act==="visit"){ update(name, r=>{ r.visited = r.visited ? null : Date.now(); }); refresh(name); }
+  else if(act==="view"){ openViewer(name, b.dataset.id); }
+});
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"){ document.getElementById("viewer").hidden=true; document.getElementById("album").hidden=true; }
+  const b = e.target.closest && e.target.closest(".pic[data-act]");
+  if(b && (e.key==="Enter"||e.key===" ")){ e.preventDefault(); b.click(); }
+});
+let memoTimer = null;
+document.addEventListener("input",e=>{
+  const t = e.target; if(t.dataset.act!=="memo") return;
+  const name = decodeURIComponent(t.dataset.k);
+  clearTimeout(memoTimer);
+  memoTimer = setTimeout(()=>{
+    update(name, r=>{ r.memo = t.value; if(t.value && !r.visited) r.visited = Date.now(); });
+    const tag = document.querySelector(`[data-saved="${t.dataset.k}"]`); if(tag) tag.textContent = "메모 저장됨";
+    updateBadges();
+  },500);
+});
+
+/* ===== 추억 앨범 ===== */
+function orderedNames(){ return STOPS.flatMap(namesOf); }
+function filled(){ return orderedNames().map(rec).filter(r=>r.visited||r.memo||r.photos.length); }
+function renderAlbum(){
+  const list = filled(), total = orderedNames().length;
+  const nPh = list.reduce((a,r)=>a+r.photos.length,0);
+  document.getElementById("albumStat").textContent = `${total}곳 중 ${list.filter(r=>r.visited).length}곳 방문 · 사진 ${nPh}장`;
+  document.getElementById("albumList").innerHTML = list.length ? list.map(r=>`
+    <section class="entry">
+      <h3>${esc(r.name)}</h3>
+      <p class="when">${r.visited?fmt(r.visited)+" 방문":"방문 전"}</p>
+      ${r.memo?`<p class="memo">${esc(r.memo)}</p>`:""}
+      ${r.photos.length?`<div class="grid">${r.photos.map(ph=>`<button data-act="view" data-k="${K(r.name)}" data-id="${ph.id}" aria-label="${esc(r.name)} 사진 크게 보기"><img src="${ph.src}" alt=""></button>`).join("")}</div>`:""}
+    </section>`).join("")
+  : `<p class="empty">아직 남긴 기록이 없어요.<br>지도에서 핀을 누르고 📷 촬영이나 🖼️ 갤러리로 첫 사진을 남겨보세요.</p>`;
+}
+document.getElementById("openAlbum").onclick = ()=>{ renderAlbum(); document.getElementById("album").hidden=false; };
+
+function download(name, text, type){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text],{type}));
+  a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1000);
+}
+const today = ()=>{ const d=new Date(); return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`; };
+document.getElementById("exportAlbum").onclick = ()=>{
+  const list = filled();
+  if(!list.length){ alert("아직 저장할 기록이 없어요."); return; }
+  const body = list.map(r=>`<section><h2>${esc(r.name)}</h2><p class="w">${r.visited?fmt(r.visited)+" 방문":""}</p>
+    ${r.memo?`<p class="m">${esc(r.memo)}</p>`:""}
+    <div class="g">${r.photos.map(ph=>`<img src="${ph.src}" alt="${esc(r.name)}">`).join("")}</div></section>`).join("");
+  download(`대구여행_추억앨범_${today()}.html`, `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>대구 여행 추억 앨범</title>
+<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:0 auto;padding:24px 16px;color:#1d2433;background:#f6f7fb}
+h1{font-size:28px;margin:0 0 4px}section{background:#fff;border-radius:14px;padding:16px;margin:14px 0}
+h2{font-size:18px;margin:0}.w{color:#5d6577;font-size:13px;margin:2px 0 8px}.m{white-space:pre-wrap;line-height:1.6}
+.g{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.g img{width:100%;border-radius:10px}</style></head>
+<body><h1>대구 여행 추억 앨범</h1><p class="w">${list.filter(r=>r.visited).length}곳의 기록</p>${body}</body></html>`, "text/html");
+};
+document.getElementById("exportBackup").onclick = ()=>{
+  download(`대구여행_기록백업_${today()}.json`, JSON.stringify({app:"daegu-route-map",version:1,records:REC}), "application/json");
+};
+const impIn = Object.assign(document.createElement("input"),{type:"file",accept:".json,application/json",hidden:true});
+document.body.appendChild(impIn);
+document.getElementById("importBackup").onclick = ()=>impIn.click();
+impIn.onchange = async ()=>{
+  const f = impIn.files[0]; impIn.value=""; if(!f) return;
+  try{
+    const data = JSON.parse(await f.text());
+    if(data.app!=="daegu-route-map") throw 0;
+    Object.values(data.records||{}).forEach(inc=>{
+      update(inc.name, r=>{
+        const ids = new Set(r.photos.map(x=>x.id));
+        r.photos.push(...(inc.photos||[]).filter(x=>!ids.has(x.id)));
+        if(!r.memo) r.memo = inc.memo||""; if(!r.visited) r.visited = inc.visited||null;
+      });
+    });
+    updateBadges(); renderAlbum(); alert("백업을 불러왔어요.");
+  }catch(e){ alert("이 파일은 이 지도의 백업 파일이 아니에요. '백업 저장'으로 만든 .json 파일을 골라주세요."); }
+};
+
+/* ===== 슬라이드 시트: 끌어서 올리고 내리기 ===== */
+const sheet=document.getElementById("sheet"), head=document.getElementById("sheetHead");
+const STATES=["peek","half","full"]; let state="peek";
+const sheetH=()=>sheet.offsetHeight;
+function safeBottom(){ const d=document.createElement("div"); d.style.cssText="position:fixed;height:env(safe-area-inset-bottom,0px)"; document.body.appendChild(d); const h=d.offsetHeight; d.remove(); return h; }
+const SB=safeBottom();
+function visibleFor(st){ const H=sheetH(); return st==="full"?H : st==="half"?Math.min(H,Math.round(window.innerHeight*0.5)) : 110+SB; }
+function setSheet(st){
+  state=st; sheet.style.transform=`translateY(${sheetH()-visibleFor(st)}px)`;
+  document.getElementById("grab").setAttribute("aria-label", st==="full"?"타임라인 접기":"타임라인 펼치기");
+  if(st==="peek") document.getElementById("sheetBody").scrollTop=0;
+}
+let startY=0,startT=0,moved=false,dragging=false;
+head.addEventListener("pointerdown",e=>{
+  if(e.target.closest(".back")) return;
+  dragging=true; startY=e.clientY; startT=sheetH()-visibleFor(state); moved=false;
+  sheet.classList.add("dragging"); head.setPointerCapture(e.pointerId);
+});
+head.addEventListener("pointermove",e=>{
+  if(!dragging) return;
+  const dy=e.clientY-startY; if(Math.abs(dy)>5) moved=true;
+  const t=Math.max(0,Math.min(sheetH()-visibleFor("peek"),startT+dy));
+  sheet.style.transform=`translateY(${t}px)`;
+});
+function endDrag(e){
+  if(!dragging) return; dragging=false; sheet.classList.remove("dragging");
+  if(!moved){ setSheet(STATES[(STATES.indexOf(state)+1)%3]); return; }
+  const vis=sheetH()-Math.max(0,startT+(e.clientY-startY));
+  const best=STATES.reduce((a,b)=>Math.abs(visibleFor(b)-vis)<Math.abs(visibleFor(a)-vis)?b:a);
+  setSheet(best);
+}
+head.addEventListener("pointerup",endDrag);
+head.addEventListener("pointercancel",()=>{ dragging=false; sheet.classList.remove("dragging"); setSheet(state); });
+window.addEventListener("resize",()=>setSheet(state));
+map.on("popupopen",()=>{ if(state!=="peek") setSheet("peek"); });
+
+/* ===== 첫 화면 → 지도 ===== */
+const intro=document.getElementById("intro"), toggle=document.getElementById("courseToggle");
+toggle.onclick=()=>{
+  toggle.setAttribute("aria-checked","true");
+  setTimeout(()=>{
+    intro.classList.add("leave"); map.invalidateSize(); setSheet("half");
+    map.fitBounds(allBounds,{paddingTopLeft:[30,60],paddingBottomRight:[30,visibleFor("half")+20]});
+  },280);
+  setTimeout(()=>{ intro.hidden=true; },850);
+};
+document.getElementById("backIntro").onclick=()=>{
+  map.closePopup(); intro.hidden=false; toggle.setAttribute("aria-checked","false");
+  requestAnimationFrame(()=>requestAnimationFrame(()=>intro.classList.remove("leave")));
+};
+setSheet("peek");
+map.fitBounds(allBounds,{padding:[40,40]});
+
+openStore().then(()=>{
+  if(storeMode==="memory") document.getElementById("storeWarn").hidden = false;
+  updateBadges();
+});
+</script>
+</body>
+</html>
